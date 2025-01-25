@@ -1,0 +1,21 @@
+{
+  "net_protocol": "tcp",  // or "udp"
+  "protocol": "coban",    // example, can be "teltonika", "xexun", etc.
+  "ip": "192.168.1.1",    // IP address of GPS device
+  "port": 8080,           // Port number of GPS device
+  "imei": "123456789012345", // 15-character device ID
+  "dt_server": "2025-01-23 12:34:56", // UTC date and time from the server
+  "dt_tracker": "2025-01-23 12:34:56", // UTC date and time from the tracker
+  "lat": 37.7749,         // Latitude with +/- for direction
+  "lng": -122.4194,       // Longitude with +/- for direction
+  "altitude": 500,        // Altitude in meters
+  "angle": 45,            // Angle in degrees
+  "speed": 60,            // Speed in km/h
+  "loc_valid": 1,         // 1 for valid location, 0 for not valid
+  "params": {             // Parameters array
+    "acc": 1,
+    "di": 0,
+    "do": 1,
+    "ai": 0.5
+  }
+}
