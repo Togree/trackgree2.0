@@ -18,7 +18,7 @@
 	include ('s_init.php');
 	include ('s_events.php'); 
 	include ('../func/fn_common.php');
-	include ('../tools/gc_func.php');
+	include ('../tools/gc_func.php'); 
 
 	function insert_db_loc($loc)
 	{
