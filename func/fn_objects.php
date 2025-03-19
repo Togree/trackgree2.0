@@ -19,7 +19,7 @@
 	if(@$_POST['cmd'] == 'load_object_data')
 	{		
 		if (isset($_POST['imei']))
-		{
+		{ 
 			$imei = strtoupper(@$_POST['imei']); // get imei
 			
 			// check privileges

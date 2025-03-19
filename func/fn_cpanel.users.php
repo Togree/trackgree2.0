@@ -1,16 +1,83 @@
-<?
-	set_time_limit(0);
-	
-	session_start();
-	include ('../init.php');
-	include ('fn_common.php');
-	include ('../tools/sms.php');
-	if (version_compare(PHP_VERSION, '5.5.0', '>=')) { include ('../tools/email.php'); } else { include ('../tools/email52.php'); }
-	
-	checkUserSession();
-	checkUserCPanelPrivileges();
-	
-	loadLanguage($_SESSION["language"], $_SESSION["units"]);
+<?php
+    set_time_limit(0);
+    session_start();
+
+    include ('../init.php');
+    include ('fn_common.php');
+    include ('../tools/sms.php');
+
+    if (version_compare(PHP_VERSION, '5.5.0', '>=')) { 
+        include ('../tools/email.php'); 
+    } else { 
+        include ('../tools/email52.php'); 
+    }
+
+    checkUserSession();
+    checkUserCPanelPrivileges();
+    loadLanguage($_SESSION["language"], $_SESSION["units"]);
+
+    if (@$_POST['cmd'] == 'register_user') {
+        global $ms; // Ensure database connection is available
+
+        $email = trim($_POST['email']);
+        $send = $_POST['send'];
+
+        if (!empty($email)) {
+            // Generate privileges JSON
+            $privileges = [
+                "type" => "user",
+                "map_osm" => stringToBool($gsValues['USER_MAP_OSM']),
+                "history" => stringToBool($gsValues['HISTORY']),
+                "reports" => stringToBool($gsValues['REPORTS']),
+                "chat" => stringToBool($gsValues['CHAT']),
+                "subaccounts" => stringToBool($gsValues['SUBACCOUNTS'])
+            ];
+            $privileges_json = json_encode($privileges);
+
+            // Determine manager ID
+            if ($_SESSION["cpanel_privileges"] == 'super_admin' || $_SESSION["cpanel_privileges"] == 'admin') {
+                $manager_id = $_POST['manager_id'];
+            } else {
+                $manager_id = $_SESSION["cpanel_manager_id"];
+            }
+
+            // Create the user and get the user ID
+            $user_id = addUser($send, 'true', 'false', '', $privileges_json, $manager_id, $email, $email, '', 
+                $gsValues['OBJ_ADD'], $gsValues['OBJ_LIMIT'], $gsValues['OBJ_LIMIT_NUM'], 
+                $gsValues['OBJ_DAYS'], $gsValues['OBJ_DAYS_NUM'], $gsValues['OBJ_EDIT'], 
+                $gsValues['OBJ_DELETE'], $gsValues['OBJ_HISTORY_CLEAR']);
+
+            // Debugging: Check what `addUser()` returns
+            if ($user_id === "OK") {
+                // Fetch the last inserted user ID manually
+                $query = "SELECT id FROM gs_users WHERE email = '$email' ORDER BY id DESC LIMIT 1";
+                $result = mysqli_query($ms, $query);
+                $row = mysqli_fetch_assoc($result);
+                $user_id = $row['id'] ?? false;
+            }
+
+            // Ensure a valid numeric user_id is returned
+            if ($user_id && is_numeric($user_id)) {
+                // Generate a secure token
+                $token = bin2hex(random_bytes(32));
+
+                // Insert token into database
+                $query = "INSERT INTO gs_users_tokens (user_id, token, created_at) VALUES ('$user_id', '$token', NOW())";
+                $result = mysqli_query($ms, $query);
+
+                if ($result) {
+                    echo json_encode(["success" => true, "token" => $token, "user_id" => $user_id]);
+                } else {
+                    echo json_encode(["success" => false, "error" => "Failed to save token"]);
+                }
+            } else {
+                echo json_encode(["success" => false, "error" => "User creation failed: Invalid user_id", "debug" => var_export($user_id, true)]);
+            }
+        } else {
+            echo json_encode(["success" => false, "error" => "Invalid email"]);
+        }
+        die;
+    }
 	
 	if(@$_GET['cmd'] == 'load_subaccount_list')
 	{ 
@@ -486,55 +553,7 @@
 		die;
 	}
         
-    if(@$_POST['cmd'] == 'register_user')
-	{
-		$email = $_POST['email'];
-		$send = $_POST['send'];
-		
-		if ($email != '')
-		{
-			$privileges = array();
-			$privileges['type'] = 'user';
-			$privileges['map_osm'] = stringToBool($gsValues['USER_MAP_OSM']);
-			$privileges['map_bing'] = stringToBool($gsValues['USER_MAP_BING']);
-			$privileges['map_google'] = stringToBool($gsValues['USER_MAP_GOOGLE']);
-			$privileges['map_google_street_view'] = stringToBool($gsValues['USER_MAP_GOOGLE_STREET_VIEW']);
-			$privileges['map_google_traffic'] = stringToBool($gsValues['USER_MAP_GOOGLE_TRAFFIC']);
-			$privileges['map_mapbox'] = stringToBool($gsValues['USER_MAP_MAPBOX']);
-			$privileges['map_yandex'] = stringToBool($gsValues['USER_MAP_YANDEX']);
-			$privileges['kml'] = stringToBool($gsValues['KML']);
-			$privileges['dashboard'] = stringToBool($gsValues['DASHBOARD']);
-			$privileges['history'] = stringToBool($gsValues['HISTORY']);
-			$privileges['reports'] = stringToBool($gsValues['REPORTS']);
-			$privileges['tachograph'] = stringToBool($gsValues['TACHOGRAPH']);
-			$privileges['tasks'] = stringToBool($gsValues['TASKS']);
-			$privileges['rilogbook'] = stringToBool($gsValues['RILOGBOOK']);
-			$privileges['dtc'] = stringToBool($gsValues['DTC']);
-			$privileges['maintenance'] = stringToBool($gsValues['MAINTENANCE']);
-			$privileges['expenses'] = stringToBool($gsValues['EXPENSES']);
-			$privileges['object_control'] = stringToBool($gsValues['OBJECT_CONTROL']);
-			$privileges['image_gallery'] = stringToBool($gsValues['IMAGE_GALLERY']);
-			$privileges['chat'] = stringToBool($gsValues['CHAT']);
-			$privileges['subaccounts'] = stringToBool($gsValues['SUBACCOUNTS']);
-			$privileges = json_encode($privileges);
-				
-			// check if admin or manager
-			if (($_SESSION["cpanel_privileges"] == 'super_admin') || ($_SESSION["cpanel_privileges"] == 'admin'))
-			{
-				$manager_id = $_POST['manager_id'];
-				
-			}
-			else
-			{
-				$manager_id = $_SESSION["cpanel_manager_id"];
-			}
-			
-			$result = addUser($send, 'true', 'false', '', $privileges, $manager_id, $email, $email, '', $gsValues['OBJ_ADD'], $gsValues['OBJ_LIMIT'], $gsValues['OBJ_LIMIT_NUM'], $gsValues['OBJ_DAYS'], $gsValues['OBJ_DAYS_NUM'], $gsValues['OBJ_EDIT'], $gsValues['OBJ_DELETE'], $gsValues['OBJ_HISTORY_CLEAR']);
-
-			echo $result;
-		}
-		die;
-	}
+    
         
     if(@$_POST['cmd'] == 'login_user')
 	{
