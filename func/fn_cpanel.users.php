@@ -78,6 +78,212 @@
         }
         die;
     }
+        
+    if(@$_GET['cmd'] == 'load_user_list')
+	{		
+		$page = $_GET['page']; // get the requested page
+		$limit = $_GET['rows']; // get how many rows we want to have into the grid
+		$sidx = $_GET['sidx']; // get index row - i.e. user click to sort
+		$sord = $_GET['sord']; // get the direction
+		$search = caseToUpper(@$_GET['s']); // get search
+		$manager_id = @$_GET['manager_id'];
+		
+		if(!$sidx) $sidx = 1;
+			
+		$q = "SELECT gs_users.*,
+			(SELECT COUNT(*) FROM gs_users as b WHERE privileges LIKE '%subuser%' AND b.manager_id = gs_users.id) as subacc_cnt,
+			(SELECT COUNT(*) FROM gs_user_objects WHERE gs_user_objects.user_id = gs_users.id) as obj_cnt
+			FROM gs_users";
+				
+		// check if admin or manager
+		if ($_SESSION["cpanel_privileges"] == 'super_admin')
+		{
+			if ($manager_id == 0)
+			{				
+				$q .= " WHERE `privileges` NOT LIKE ('%subuser%')
+				AND (`id` LIKE '%$search%'
+				OR UPPER(`privileges`) LIKE '%$search%'
+				OR UPPER(`username`) LIKE '%$search%'
+				OR UPPER(`email`) LIKE '%$search%')";
+			}
+			else
+			{
+				$q .= " WHERE `privileges` NOT LIKE ('%subuser%')
+				AND `manager_id`='".$manager_id."'
+				AND (`id` LIKE '%$search%'
+				OR UPPER(`privileges`) LIKE '%$search%'
+				OR UPPER(`username`) LIKE '%$search%'
+				OR UPPER(`email`) LIKE '%$search%')";
+			}
+		}
+		else if ($_SESSION["cpanel_privileges"] == 'admin')
+		{
+			if ($manager_id == 0)
+			{				
+				$q .= " WHERE `privileges` NOT LIKE ('%subuser%')
+				AND  `privileges` NOT LIKE ('%super_admin%')
+				AND  (`privileges` NOT LIKE ('%admin%') OR `id`='".$_SESSION["cpanel_user_id"]."' )
+				AND (`id` LIKE '%$search%'
+				OR UPPER(`privileges`) LIKE '%$search%'
+				OR UPPER(`username`) LIKE '%$search%'
+				OR UPPER(`email`) LIKE '%$search%')";
+			}
+			else
+			{
+				$q .= " WHERE `privileges` NOT LIKE ('%subuser%')
+				AND `manager_id`='".$manager_id."'
+				AND (`id` LIKE '%$search%'
+				OR UPPER(`privileges`) LIKE '%$search%'
+				OR UPPER(`username`) LIKE '%$search%'
+				OR UPPER(`email`) LIKE '%$search%')";
+			}
+		}
+		else
+		{
+			$q .= " WHERE `privileges` NOT LIKE ('%subuser%')
+			AND `manager_id`='".$_SESSION["cpanel_manager_id"]."'
+			AND (`id` LIKE '%$search%'
+			OR UPPER(`privileges`) LIKE '%$search%'
+			OR UPPER(`username`) LIKE '%$search%'
+			OR UPPER(`email`) LIKE '%$search%')";
+		}
+		
+		// search for comments
+		if ($search == 'HAS COMMENT')
+		{
+			$q = substr($q, 0, -1);
+			$q .= " OR comment != '')";
+		}
+		
+		$r = mysqli_query($ms, $q);
+		$count = mysqli_num_rows($r);
+		
+		if ($count > 0) {
+			$total_pages = ceil($count/$limit);
+		} else {
+			$total_pages = 1;
+		}
+		
+		if ($page > $total_pages) $page=$total_pages;
+		$start = $limit*$page - $limit; // do not put $limit*($page - 1)
+		
+		$q .= " ORDER BY $sidx $sord LIMIT $start, $limit";
+		$r = mysqli_query($ms, $q);
+		
+		$response = new stdClass();
+		$response->page = $page;
+		$response->total = $total_pages;
+		$response->records = $count;
+		
+		if ($r)
+		{
+			$i = 0;
+			while ($row = mysqli_fetch_array($r))
+			{
+				if ($row['active'] == 'true')
+				{
+					$active = '<a href="#" onclick="userDeactivate(\''.$row['id'].'\');" title="'.$la['DEACTIVATE'].'"><img src="theme/images/tick-green.svg" /></a>';
+				}
+				else
+				{
+					$active = '<a href="#" onclick="userActivate(\''.$row['id'].'\');" title="'.$la['ACTIVATE'].'"><img src="theme/images/remove-red.svg" style="width:12px;" />';
+				}
+				
+				$expires_on = '';
+				
+				if ($row['account_expire'] == 'true')
+				{
+					if (strtotime($row['account_expire_dt']) > 0)
+					{
+						$expires_on = $row['account_expire_dt'];
+					}
+				}
+				
+				$row['privileges'] = json_decode($row['privileges'],true);
+				
+				$privileges = '';
+				if ($row['privileges']['type'] == 'super_admin') {$privileges = $la['SUPER_ADMINISTRATOR'];}
+				if ($row['privileges']['type'] == 'admin') {$privileges = $la['ADMINISTRATOR'];}
+				if ($row['privileges']['type'] == 'manager') {$privileges = $la['MANAGER'];}
+				if ($row['privileges']['type'] == 'user') {$privileges = $la['USER'];}
+				if ($row['privileges']['type'] == 'viewer') {$privileges = $la['VIEWER'];}
+
+				if ($row['api'] == 'true')
+				{
+					$api = '<a href="#" onclick="userAPIDeactivate(\''.$row['id'].'\');" title="'.$la['DEACTIVATE'].'"><img src="theme/images/tick-green.svg" /></a>';
+				}
+				else
+				{
+					$api = '<a href="#" onclick="userAPIActivate(\''.$row['id'].'\');" title="'.$la['ACTIVATE'].'"><img src="theme/images/remove-red.svg" style="width:12px;" />';
+				}
+
+				$dt_reg = convUserTimezone($row['dt_reg']);
+				$dt_login = convUserTimezone($row['dt_login']);
+				
+				$objects = $row['obj_cnt'];
+				
+				// get gps object number
+				$q2 = "SELECT * FROM `gs_user_objects` WHERE `user_id`='".$row['id']."'";
+				$r2 = mysqli_query($ms, $q2);
+				
+				// check if any object expire soon
+				while($row2 = mysqli_fetch_array($r2))
+				{
+					$imei = $row2['imei'];
+					$q3 = "SELECT * FROM `gs_objects` WHERE `imei`='".$imei."'";
+					$r3 = mysqli_query($ms, $q3);
+					$row3 = mysqli_fetch_array($r3);
+					
+					if ($row3['object_expire'] == 'true')
+					{
+						$diff = strtotime($row3['object_expire_dt']) - strtotime(gmdate("Y-m-d"));
+						$days = $diff / 86400;
+						if ($days < $gsValues['NOTIFY_OBJ_EXPIRE_PERIOD'])
+						{
+							$objects = '<font color="red">'.$objects.'</font>';
+							break;
+						}	
+					}
+				}
+				
+				// set modify buttons
+				$modify = '<a href="#" onclick="userEdit(\''.$row['id'].'\');" title="'.$la['EDIT'].'"><img src="theme/images/edit.svg" /></a>';
+				// check if user is not admin or manager, if admin or manager do not show delete button;
+				if ($_SESSION["user_id"] != $row['id'])
+				{
+					$modify .= '<a href="#" onclick="userDelete(\''.$row['id'].'\');" title="'.$la['DELETE'].'"><img src="theme/images/remove3.svg" /></a>';
+				}
+				$modify .= '<a href="#" onclick="userLogin(\''.$row['id'].'\');" title="'.$la['LOGIN_AS_USER'].'"><img src="theme/images/key.svg" /></a>';
+
+				$user_id = $row['id'];
+
+				// Check if the user already has a token
+				$token_query = "SELECT token FROM gs_users_tokens WHERE user_id = '$user_id' LIMIT 1";
+				$token_result = mysqli_query($ms, $token_query);
+				$token_row = mysqli_fetch_assoc($token_result);
+
+				if (!$token_row) {
+					// No token found, generate a new one
+					$token = bin2hex(random_bytes(32));
+
+					// Insert the new token
+					$insert_query = "INSERT INTO gs_users_tokens (user_id, token, created_at) VALUES ('$user_id', '$token', NOW())";
+					mysqli_query($ms, $insert_query);
+				} else {
+					$token = $token_row['token'];
+				}
+
+				// **Add user data to the response**
+				$response->rows[$i]['id'] = $row['id'];
+				$response->rows[$i]['cell']=array($row['id'],$row['username'],$row['email'],$active,$expires_on,$privileges,$api,$dt_reg,$dt_login,$row['ip'],$row['subacc_cnt'],$objects,$row['usage_email_daily_cnt'],$row['usage_sms_daily_cnt'],$row['usage_webhook_daily_cnt'],$row['usage_api_daily_cnt'],$modify);
+				$i++;
+			}
+		}
+		
+		header('Content-type: application/json');
+		echo json_encode($response);
+		die;
+	}
 	
 	if(@$_GET['cmd'] == 'load_subaccount_list')
 	{ 
